@@ -97,7 +97,7 @@ router.get('/records', roleMiddleware('admin'), (req: Request, res: Response) =>
     const status = req.query.status as string;
     const offset = (page - 1) * limit;
 
-    let where = "WHERE p.status = 'picked_up'";
+    let where = '';
     const params: any[] = [];
 
     if (status) {
@@ -107,12 +107,12 @@ router.get('/records', roleMiddleware('admin'), (req: Request, res: Response) =>
 
     if (startDate) {
       const dateField = status === 'picked_up' ? 'p.picked_up_at' : 'p.entered_at';
-      where += ` AND date(${dateField}) >= ?`;
+      where += where ? ` AND date(${dateField}) >= ?` : `WHERE date(${dateField}) >= ?`;
       params.push(startDate);
     }
     if (endDate) {
       const dateField = status === 'picked_up' ? 'p.picked_up_at' : 'p.entered_at';
-      where += ` AND date(${dateField}) <= ?`;
+      where += where ? ` AND date(${dateField}) <= ?` : `WHERE date(${dateField}) <= ?`;
       params.push(endDate);
     }
 
