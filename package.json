@@ -1,0 +1,16 @@
+{
+  "name": "wje-198-express-station",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install",
+    "seed": "cd backend && npx tsx seed.ts",
+    "dev": "concurrently -n backend,frontend -c blue,green \"cd backend && PORT=3298 npx tsx server.ts\" \"cd frontend && VITE_PORT=5198 VITE_API_PORT=3298 npx vite --host 0.0.0.0\"",
+    "dev:backend": "cd backend && PORT=3298 npx tsx server.ts",
+    "dev:frontend": "cd frontend && VITE_PORT=5198 VITE_API_PORT=3298 npx vite --host 0.0.0.0",
+    "build": "cd backend && npm run build && cd ../frontend && npm run build"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
