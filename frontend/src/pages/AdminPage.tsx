@@ -18,9 +18,31 @@ interface PickupRecord {
   status: string;
   entered_at: string;
   picked_up_at: string | null;
+  processed_at: string | null;
+  process_note: string | null;
   entered_by_name: string | null;
   picked_up_by_name: string | null;
+  processed_by_name: string | null;
+  storage_days: number;
 }
+
+type TabKey = 'all' | 'pending' | 'picked_up' | 'expired' | 'returned' | 'scrapped';
+
+const statusLabels: Record<string, string> = {
+  pending: '待取件',
+  picked_up: '已取件',
+  expired: '已过期',
+  returned: '已退回',
+  scrapped: '已报废',
+};
+
+const statusColors: Record<string, string> = {
+  pending: 'status-pending',
+  picked_up: 'status-picked',
+  expired: 'status-expired',
+  returned: 'status-returned',
+  scrapped: 'status-scrapped',
+};
 
 function todayStr(): string {
   const d = new Date();
@@ -37,6 +59,11 @@ export default function AdminPage() {
   const [endDate, setEndDate] = useState('');
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<TabKey>('all');
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [processNote, setProcessNote] = useState('');
+  const [showNoteModal, setShowNoteModal] = useState(false);
+  const [batchAction, setBatchAction] = useState<'return' | 'scrap' | null>(null);
   const limit = 15;
 
   const loadDashboard = useCallback(async () => {
@@ -59,13 +86,20 @@ export default function AdminPage() {
 
   const loadRecords = useCallback(async () => {
     try {
-      const data = await api.getRecords({ start_date: startDate, end_date: endDate, page, limit });
+      const status = activeTab === 'all' ? '' : activeTab;
+      const data = await api.getRecords({
+        start_date: startDate,
+        end_date: endDate,
+        page,
+        limit,
+        status,
+      });
       setRecords(data.records);
       setTotalRecords(data.total);
     } catch (err) {
       console.error(err);
     }
-  }, [startDate, endDate, page]);
+  }, [startDate, endDate, page, activeTab]);
 
   useEffect(() => {
     const init = async () => {
@@ -81,11 +115,73 @@ export default function AdminPage() {
   }, [chartDate, loadPeakHours]);
 
   useEffect(() => {
+    setPage(1);
+    setSelectedIds(new Set());
+  }, [activeTab, startDate, endDate]);
+
+  useEffect(() => {
     loadRecords();
   }, [loadRecords]);
 
   const maxHour = Math.max(...hours, 1);
   const totalPages = Math.ceil(totalRecords / limit);
+
+  const handleTabChange = (tab: TabKey) => {
+    setActiveTab(tab);
+    setSelectedIds(new Set());
+  };
+
+  const toggleSelect = (id: number) => {
+    const newSelected = new Set(selectedIds);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedIds(newSelected);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === records.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(records.map(r => r.id)));
+    }
+  };
+
+  const openBatchModal = (action: 'return' | 'scrap') => {
+    if (selectedIds.size === 0) {
+      alert('请先选择要处理的包裹');
+      return;
+    }
+    setBatchAction(action);
+    setProcessNote('');
+    setShowNoteModal(true);
+  };
+
+  const handleBatchAction = async () => {
+    if (!batchAction || selectedIds.size === 0) return;
+
+    try {
+      if (batchAction === 'return') {
+        await api.batchReturn(Array.from(selectedIds), processNote);
+        alert(`成功退回 ${selectedIds.size} 个包裹`);
+      } else {
+        await api.batchScrap(Array.from(selectedIds), processNote);
+        alert(`成功报废 ${selectedIds.size} 个包裹`);
+      }
+      setShowNoteModal(false);
+      setSelectedIds(new Set());
+      setBatchAction(null);
+      loadRecords();
+      loadDashboard();
+    } catch (err: any) {
+      alert(err.message || '操作失败');
+    }
+  };
+
+  const isBatchDisabled = selectedIds.size === 0 ||
+    !['pending', 'expired', 'all'].includes(activeTab);
 
   if (loading) {
     return <div className="loading"><div className="spinner" /><span>加载中...</span></div>;
@@ -150,14 +246,56 @@ export default function AdminPage() {
         </div>
       </div>
 
-      {/* Records Table */}
+      {/* Records Table with Tabs */}
       <div className="card">
         <div className="card-header">
-          <div className="card-title">取件记录</div>
+          <div className="card-title">包裹管理</div>
           <div className="flex-row">
             <span className="text-sm text-gray">共 {totalRecords} 条</span>
           </div>
         </div>
+
+        {/* Tabs */}
+        <div className="tabs">
+          <button
+            className={`tab-btn ${activeTab === 'all' ? 'active' : ''}`}
+            onClick={() => handleTabChange('all')}
+          >
+            全部
+          </button>
+          <button
+            className={`tab-btn ${activeTab === 'pending' ? 'active' : ''}`}
+            onClick={() => handleTabChange('pending')}
+          >
+            待取件
+          </button>
+          <button
+            className={`tab-btn ${activeTab === 'expired' ? 'active' : ''}`}
+            onClick={() => handleTabChange('expired')}
+          >
+            已过期
+          </button>
+          <button
+            className={`tab-btn ${activeTab === 'picked_up' ? 'active' : ''}`}
+            onClick={() => handleTabChange('picked_up')}
+          >
+            已取件
+          </button>
+          <button
+            className={`tab-btn ${activeTab === 'returned' ? 'active' : ''}`}
+            onClick={() => handleTabChange('returned')}
+          >
+            已退回
+          </button>
+          <button
+            className={`tab-btn ${activeTab === 'scrapped' ? 'active' : ''}`}
+            onClick={() => handleTabChange('scrapped')}
+          >
+            已报废
+          </button>
+        </div>
+
+        {/* Batch Actions & Filters */}
         <div className="card-body" style={{ padding: '12px 20px 0' }}>
           <div className="filter-bar">
             <label className="text-sm text-gray">开始日期:</label>
@@ -168,34 +306,96 @@ export default function AdminPage() {
               重置
             </button>
           </div>
+
+          {(activeTab === 'all' || activeTab === 'pending' || activeTab === 'expired') && (
+            <div className="batch-bar">
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={records.length > 0 && selectedIds.size === records.length}
+                  onChange={toggleSelectAll}
+                />
+                <span>全选</span>
+              </label>
+              <span className="text-sm text-gray">已选 {selectedIds.size} 项</span>
+              <button
+                className="btn btn-warning btn-sm"
+                disabled={isBatchDisabled}
+                onClick={() => openBatchModal('return')}
+              >
+                批量退回
+              </button>
+              <button
+                className="btn btn-danger btn-sm"
+                disabled={isBatchDisabled}
+                onClick={() => openBatchModal('scrap')}
+              >
+                批量报废
+              </button>
+            </div>
+          )}
         </div>
+
         {records.length === 0 ? (
           <div className="empty-state">
-            <p>暂无取件记录</p>
-            <p className="sub">调整筛选条件或等待用户取件</p>
+            <p>暂无包裹记录</p>
+            <p className="sub">调整筛选条件或等待新包裹入库</p>
           </div>
         ) : (
           <div className="table-wrapper">
             <table className="data-table">
               <thead>
                 <tr>
+                  {(activeTab === 'all' || activeTab === 'pending' || activeTab === 'expired') && (
+                    <th style={{ width: 40 }}>
+                      <input
+                        type="checkbox"
+                        checked={records.length > 0 && selectedIds.size === records.length}
+                        onChange={toggleSelectAll}
+                      />
+                    </th>
+                  )}
                   <th>快递单号</th>
                   <th>收件人</th>
                   <th>手机号</th>
+                  <th>状态</th>
+                  <th>存放天数</th>
                   <th>入库操作员</th>
                   <th>入库时间</th>
-                  <th>取件时间</th>
+                  <th>处理时间</th>
+                  <th>处理人</th>
                 </tr>
               </thead>
               <tbody>
                 {records.map(r => (
-                  <tr key={r.id}>
+                  <tr key={r.id} className={selectedIds.has(r.id) ? 'selected' : ''}>
+                    {(activeTab === 'all' || activeTab === 'pending' || activeTab === 'expired') && (
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(r.id)}
+                          onChange={() => toggleSelect(r.id)}
+                          disabled={r.status === 'picked_up' || r.status === 'returned' || r.status === 'scrapped'}
+                        />
+                      </td>
+                    )}
                     <td><span className="tracking-no">{r.tracking_no}</span></td>
                     <td>{r.recipient_name}</td>
                     <td>{r.recipient_phone}</td>
+                    <td>
+                      <span className={`status-tag ${statusColors[r.status]}`}>
+                        {statusLabels[r.status] || r.status}
+                      </span>
+                    </td>
+                    <td>
+                      <span className={`storage-days ${r.storage_days > 3 ? 'overdue' : ''}`}>
+                        {r.storage_days} 天
+                      </span>
+                    </td>
                     <td>{r.entered_by_name || '-'}</td>
                     <td className="text-sm text-gray">{r.entered_at}</td>
-                    <td className="text-sm text-gray">{r.picked_up_at || '-'}</td>
+                    <td className="text-sm text-gray">{r.picked_up_at || r.processed_at || '-'}</td>
+                    <td className="text-sm text-gray">{r.picked_up_by_name || r.processed_by_name || '-'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -214,6 +414,40 @@ export default function AdminPage() {
           </div>
         )}
       </div>
+
+      {/* Batch Action Modal */}
+      {showNoteModal && (
+        <div className="modal-overlay" onClick={() => setShowNoteModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>{batchAction === 'return' ? '批量退回' : '批量报废'}</h3>
+              <button className="modal-close" onClick={() => setShowNoteModal(false)}>&times;</button>
+            </div>
+            <div className="modal-body">
+              <p>确定要{batchAction === 'return' ? '退回' : '报废'}选中的 {selectedIds.size} 个包裹吗？</p>
+              <div className="form-group">
+                <label>处理备注（可选）:</label>
+                <textarea
+                  className="form-input"
+                  rows={3}
+                  value={processNote}
+                  onChange={e => setProcessNote(e.target.value)}
+                  placeholder="请输入处理备注..."
+                />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setShowNoteModal(false)}>取消</button>
+              <button
+                className={batchAction === 'return' ? 'btn btn-warning' : 'btn btn-danger'}
+                onClick={handleBatchAction}
+              >
+                确认{batchAction === 'return' ? '退回' : '报废'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

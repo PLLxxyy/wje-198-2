@@ -31,13 +31,17 @@ db.exec(`
     recipient_phone TEXT NOT NULL,
     recipient_name TEXT NOT NULL,
     pickup_code TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','picked_up','expired')),
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','picked_up','expired','returned','scrapped')),
     entered_by INTEGER NOT NULL,
     entered_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
     picked_up_at TEXT,
     picked_up_by INTEGER,
+    processed_at TEXT,
+    processed_by INTEGER,
+    process_note TEXT,
     FOREIGN KEY (entered_by) REFERENCES users(id),
-    FOREIGN KEY (picked_up_by) REFERENCES users(id)
+    FOREIGN KEY (picked_up_by) REFERENCES users(id),
+    FOREIGN KEY (processed_by) REFERENCES users(id)
   );
   CREATE INDEX idx_packages_recipient_phone ON packages(recipient_phone);
   CREATE INDEX idx_packages_status ON packages(status);
@@ -75,8 +79,8 @@ users.forEach(u => {
 
 // --- 快递数据 ---
 const insertPkg = db.prepare(
-  `INSERT INTO packages (tracking_no, recipient_phone, recipient_name, pickup_code, status, entered_by, entered_at, picked_up_at, picked_up_by)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  `INSERT INTO packages (tracking_no, recipient_phone, recipient_name, pickup_code, status, entered_by, entered_at, picked_up_at, picked_up_by, processed_at, processed_by, process_note)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 );
 
 interface PkgSeed {
@@ -84,11 +88,14 @@ interface PkgSeed {
   recipient_phone: string;
   recipient_name: string;
   pickup_code: string;
-  status: 'pending' | 'picked_up';
+  status: 'pending' | 'picked_up' | 'expired' | 'returned' | 'scrapped';
   entered_by: string;
   entered_at: string;
   picked_up_at: string | null;
   picked_up_by: string | null;
+  processed_at: string | null;
+  processed_by: string | null;
+  process_note: string | null;
 }
 
 const recipients = [
@@ -126,6 +133,46 @@ function daysAgo(days: number, hour: number, minute: number): string {
 const packages: PkgSeed[] = [];
 let idx = 0;
 
+// 7天前入库 - 已退回 -> 2个
+for (let i = 0; i < 2; i++) {
+  const r = recipients[(i + 1) % recipients.length];
+  const enteredAt = daysAgo(7, 9 + i, i * 10);
+  packages.push({
+    tracking_no: makeTracking(idx++),
+    recipient_phone: r.phone,
+    recipient_name: r.name,
+    pickup_code: code(),
+    status: 'returned',
+    entered_by: randomCourier(),
+    entered_at: enteredAt,
+    picked_up_at: null,
+    picked_up_by: null,
+    processed_at: daysAgo(4, 10 + i, 0),
+    processed_by: 'admin',
+    process_note: '无人领取，退回发件方',
+  });
+}
+
+// 6天前入库 - 已报废 -> 2个
+for (let i = 0; i < 2; i++) {
+  const r = recipients[(i + 3) % recipients.length];
+  const enteredAt = daysAgo(6, 8 + i, i * 15);
+  packages.push({
+    tracking_no: makeTracking(idx++),
+    recipient_phone: r.phone,
+    recipient_name: r.name,
+    pickup_code: code(),
+    status: 'scrapped',
+    entered_by: randomCourier(),
+    entered_at: enteredAt,
+    picked_up_at: null,
+    picked_up_by: null,
+    processed_at: daysAgo(3, 14 + i, 30),
+    processed_by: 'admin',
+    process_note: '包裹损坏，按报废处理',
+  });
+}
+
 // 5天前入库的快递 - 超时未取 (>3天) -> 6个
 for (let i = 0; i < 6; i++) {
   const r = recipients[i % recipients.length];
@@ -140,6 +187,9 @@ for (let i = 0; i < 6; i++) {
     entered_at: enteredAt,
     picked_up_at: null,
     picked_up_by: null,
+    processed_at: null,
+    processed_by: null,
+    process_note: null,
   });
 }
 
@@ -156,6 +206,9 @@ for (let i = 0; i < 3; i++) {
     entered_at: daysAgo(4, 10 + i, 30),
     picked_up_at: null,
     picked_up_by: null,
+    processed_at: null,
+    processed_by: null,
+    process_note: null,
   });
 }
 
@@ -172,6 +225,9 @@ for (let i = 0; i < 4; i++) {
     entered_at: daysAgo(3, 9 + i * 2, 15),
     picked_up_at: daysAgo(3, 14 + i, i * 10),
     picked_up_by: r.username,
+    processed_at: null,
+    processed_by: null,
+    process_note: null,
   });
 }
 
@@ -189,6 +245,9 @@ for (let i = 0; i < 5; i++) {
     entered_at: daysAgo(2, 8 + i * 2, 20),
     picked_up_at: isPicked ? daysAgo(1, 10 + i * 2, 30) : null,
     picked_up_by: isPicked ? r.username : null,
+    processed_at: null,
+    processed_by: null,
+    process_note: null,
   });
 }
 
@@ -206,6 +265,9 @@ for (let i = 0; i < 6; i++) {
     entered_at: daysAgo(1, 9 + i, i * 8),
     picked_up_at: isPicked ? daysAgo(1, 14 + (i % 4), i * 12) : null,
     picked_up_by: isPicked ? r.username : null,
+    processed_at: null,
+    processed_by: null,
+    process_note: null,
   });
 }
 
@@ -225,6 +287,9 @@ for (let i = 0; i < 12; i++) {
     entered_at: daysAgo(0, Math.max(7, pickupHour - 2), i * 5),
     picked_up_at: isPicked ? daysAgo(0, pickupHour, i * 6) : null,
     picked_up_by: isPicked ? r.username : null,
+    processed_at: null,
+    processed_by: null,
+    process_note: null,
   });
 }
 
@@ -240,7 +305,10 @@ packages.forEach(p => {
     userIds[p.entered_by],
     p.entered_at,
     p.picked_up_at,
-    p.picked_up_by ? userIds[p.picked_up_by] : null
+    p.picked_up_by ? userIds[p.picked_up_by] : null,
+    p.processed_at,
+    p.processed_by ? userIds[p.processed_by] : null,
+    p.process_note
   );
 });
 
@@ -256,5 +324,7 @@ console.log('  用户:   user1 / user123');
 console.log('\n  快递总数:', packages.length);
 console.log('  已取件:', packages.filter(p => p.status === 'picked_up').length);
 console.log('  待取件:', packages.filter(p => p.status === 'pending').length);
-console.log('  超时(>3天):', packages.filter(p => p.status === 'pending' && (Date.now() - new Date(p.entered_at).getTime()) > 3 * 86400000).length);
+console.log('  已退回:', packages.filter(p => p.status === 'returned').length);
+console.log('  已报废:', packages.filter(p => p.status === 'scrapped').length);
+console.log('  超时(>3天未取):', packages.filter(p => p.status === 'pending' && (Date.now() - new Date(p.entered_at).getTime()) > 3 * 86400000).length);
 console.log('');

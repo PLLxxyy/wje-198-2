@@ -51,14 +51,29 @@ export const api = {
   getPeakHours: (date?: string) =>
     request(`/stats/peak-hours${date ? `?date=${date}` : ''}`),
 
-  getRecords: (params: { start_date?: string; end_date?: string; page?: number; limit?: number }) => {
+  getRecords: (params: { start_date?: string; end_date?: string; page?: number; limit?: number; status?: string }) => {
     const sp = new URLSearchParams();
     if (params.start_date) sp.set('start_date', params.start_date);
     if (params.end_date) sp.set('end_date', params.end_date);
     if (params.page) sp.set('page', String(params.page));
     if (params.limit) sp.set('limit', String(params.limit));
+    if (params.status) sp.set('status', params.status);
     return request(`/stats/records?${sp.toString()}`);
   },
 
   getOverdue: () => request('/stats/overdue'),
+
+  getExpiredPackages: () => request('/packages/expired'),
+
+  batchReturn: (ids: number[], note?: string) =>
+    request('/packages/batch-return', {
+      method: 'POST',
+      body: JSON.stringify({ ids, note }),
+    }),
+
+  batchScrap: (ids: number[], note?: string) =>
+    request('/packages/batch-scrap', {
+      method: 'POST',
+      body: JSON.stringify({ ids, note }),
+    }),
 };

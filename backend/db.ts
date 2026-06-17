@@ -30,13 +30,17 @@ export function initDB() {
       recipient_phone TEXT NOT NULL,
       recipient_name TEXT NOT NULL,
       pickup_code TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','picked_up','expired')),
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','picked_up','expired','returned','scrapped')),
       entered_by INTEGER NOT NULL,
       entered_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
       picked_up_at TEXT,
       picked_up_by INTEGER,
+      processed_at TEXT,
+      processed_by INTEGER,
+      process_note TEXT,
       FOREIGN KEY (entered_by) REFERENCES users(id),
-      FOREIGN KEY (picked_up_by) REFERENCES users(id)
+      FOREIGN KEY (picked_up_by) REFERENCES users(id),
+      FOREIGN KEY (processed_by) REFERENCES users(id)
     );
 
     CREATE INDEX IF NOT EXISTS idx_packages_recipient_phone ON packages(recipient_phone);
@@ -44,6 +48,16 @@ export function initDB() {
     CREATE INDEX IF NOT EXISTS idx_packages_tracking_no ON packages(tracking_no);
     CREATE INDEX IF NOT EXISTS idx_packages_entered_at ON packages(entered_at);
   `);
+
+  const cols = db.prepare("PRAGMA table_info(packages)").all() as any[];
+  const hasProcessedAt = cols.some(c => c.name === 'processed_at');
+  if (!hasProcessedAt) {
+    db.exec(`
+      ALTER TABLE packages ADD COLUMN processed_at TEXT;
+      ALTER TABLE packages ADD COLUMN processed_by INTEGER;
+      ALTER TABLE packages ADD COLUMN process_note TEXT;
+    `);
+  }
 }
 
 export default db;
